@@ -70,8 +70,26 @@ inspections to mirror/confirm the native technique:
      'multiply\|screen\|turbulence\|noise\|CAMetalLayer\|CGSWindow'
    ```
 
-**Outcome (this environment):** inconclusive — app not installed. Per spec §6 we
-**fall back to the alpha-blend technique**, which is implemented and documented.
+**Outcome (CONFIRMED — Paperman 2.12.0 inspected at /Applications/Paperman.app):**
+- **Paperman is a Tauri app** (Rust backend + a transparent `WKWebView`): binary
+  strings show `__TAURI_INVOKE__`, `__tauriModule`, "Tauri IPC/Isolation
+  Pattern", and Rust/`objc2`/`cocoa::appkit::NSWindow::setBackgroundColor`
+  symbols. The webview renders the *same website grain* (CSS `feTurbulence` +
+  `mix-blend-mode`).
+- `otool -L`: links **only CoreGraphics / CoreVideo / QuartzCore — no Metal, no
+  ScreenCaptureKit.** Entitlements: app-sandbox, network.client,
+  downloads.read-write — **no screen-capture**. So Paperman does **not** read the
+  screen or run a GPU shader.
+- **Conclusion:** Paperman's `mix-blend-mode` blends grain *within its own
+  transparent page*; the composited page is then **alpha-composited over the
+  desktop** by the window server — the SAME fundamental compositing as Papier.
+  Papier is the native-Rust (objc2 + `NSPanel`) equivalent of what Paperman does
+  in a Tauri webview. The "can't true-multiply against other apps' pixels" note
+  holds for both.
+- **Papier's matte technique (updated):** a full-coverage **neutral
+  contrast-attenuation veil** (lifts blacks, lowers whites toward a light paper
+  tone) carrying fine grain tooth — not sparse dark flecks. Tunable via
+  `VEIL_TONE` / `GRAIN_AMP` in `grain.rs`; intensity via the window `alphaValue`.
 
 ## Behavioral checklist (human verification on a GUI session)
 
