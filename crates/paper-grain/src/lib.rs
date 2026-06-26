@@ -17,9 +17,11 @@ use std::path::Path;
 
 /// Parameters for one procedural grain texture (a faithful `feTurbulence` analog).
 pub struct TextureSpec {
-    /// Lowest-octave frequency in cycles across the tile. Matches Paperman's
-    /// `baseFrequency` (overlay ~1.5, previews ~0.9–1.2). Rounded to an integer
-    /// number of cycles internally so the tile stays seamlessly periodic.
+    /// Lowest-octave frequency in **cycles across the tile** (rounded to an
+    /// integer internally so the tile stays seamlessly periodic). On a 200px
+    /// tile the dominant feature size is `size / base_frequency` px, so fine
+    /// paper grain (~3–5px features, matching Paperman's `feTurbulence` shown at
+    /// ~900px) needs `base_frequency` in the tens (~32–48), NOT ~1.
     pub base_frequency: f64,
     /// Number of fBm octaves (Paperman's `numOctaves`, typically 3).
     pub octaves: u32,
@@ -135,10 +137,12 @@ pub fn bake_png(
 /// Known names: `"classic-matte"`, `"whisper-weave"`, `"sunbaked-parchment"`.
 /// All use `octaves = 3` and `size = 200`.
 pub fn texture_spec(name: &str) -> Option<TextureSpec> {
+    // Cycles across the 200px tile -> dominant feature ≈ size/base px.
+    // 48 ≈ 4.2px (fine), 40 ≈ 5px, 32 ≈ 6.25px (coarsest of the three).
     let (base_frequency, seed) = match name {
-        "classic-matte" => (1.5, 1),
-        "whisper-weave" => (1.2, 2),
-        "sunbaked-parchment" => (0.9, 3),
+        "classic-matte" => (48.0, 1),
+        "whisper-weave" => (40.0, 2),
+        "sunbaked-parchment" => (32.0, 3),
         _ => return None,
     };
     Some(TextureSpec {
@@ -206,10 +210,69 @@ mod tests {
 
     fn spec() -> TextureSpec {
         TextureSpec {
-            base_frequency: 1.5,
+            base_frequency: 48.0,
             octaves: 3,
             seed: 42,
             size: 200,
+        }
+    }
+
+    // Metrics used by the fineness regression tests.
+    fn adjacent_h_mean_abs_diff(t: &GrayTile) -> f64 {
+        let s = t.size as usize;
+        let mut acc = 0u64;
+        let mut count = 0u64;
+        for y in 0..s {
+            for x in 0..s - 1 {
+                let a = t.pixels[y * s + x] as i64;
+                let b = t.pixels[y * s + x + 1] as i64;
+                acc += (a - b).unsigned_abs();
+                count += 1;
+            }
+        }
+        acc as f64 / count as f64
+    }
+
+    // Std-dev of averages over `blocks`×`blocks` macro-cells. Large blobs => high.
+    fn block_avg_std(t: &GrayTile, blocks: usize) -> f64 {
+        let s = t.size as usize;
+        let bs = s / blocks;
+        let mut means = Vec::new();
+        for by in 0..blocks {
+            for bx in 0..blocks {
+                let mut sum = 0u64;
+                for y in by * bs..(by + 1) * bs {
+                    for x in bx * bs..(bx + 1) * bs {
+                        sum += t.pixels[y * s + x] as u64;
+                    }
+                }
+                means.push(sum as f64 / (bs * bs) as f64);
+            }
+        }
+        let mean = means.iter().sum::<f64>() / means.len() as f64;
+        let var = means.iter().map(|m| (m - mean).powi(2)).sum::<f64>() / means.len() as f64;
+        var.sqrt()
+    }
+
+    // REGRESSION (grain too coarse): the shipped catalog textures must be FINE
+    // paper grain, not large blobs. Calibrated from measured output —
+    // coarse grain (base_frequency ~1–8) gives adj_h < 4 and block8_std > 20;
+    // fine grain (the fixed 32–48) gives adj_h > 12 and block8_std < 11.
+    // Thresholds sit in the gap so a regression back to ~1.5 fails loudly.
+    #[test]
+    fn catalog_grain_is_fine_not_coarse() {
+        for name in ["classic-matte", "whisper-weave", "sunbaked-parchment"] {
+            let t = generate_tile(&texture_spec(name).unwrap());
+            let adj = adjacent_h_mean_abs_diff(&t);
+            let blob = block_avg_std(&t, 8);
+            assert!(
+                adj > 8.0,
+                "{name}: grain too smooth/coarse (adj_h={adj:.2}, want > 8.0)"
+            );
+            assert!(
+                blob < 16.0,
+                "{name}: large-scale blobs present (block8_std={blob:.2}, want < 16.0)"
+            );
         }
     }
 
@@ -228,38 +291,85 @@ mod tests {
     }
 
     #[test]
-    fn tileable_edges_wrap() {
+    fn seam_is_continuous() {
+        // Seamless tiling means the wrap-around seam (col s-1 -> col 0, which is
+        // the next tile's first column) is statistically NO WORSE than a normal
+        // interior adjacent-pixel step. (The old test asserted opposite edges
+        // were *similar in absolute terms*, which only holds for low-frequency
+        // grain and breaks for correct fine grain — that was the bug to fix.)
         let t = generate_tile(&spec());
         let s = t.size as usize;
 
-        // Left column vs right column.
-        let mut col_diff = 0u64;
+        let interior_h = adjacent_h_mean_abs_diff(&t);
+
+        let mut seam_col = 0u64;
         for y in 0..s {
-            let left = t.pixels[y * s] as i64;
-            let right = t.pixels[y * s + (s - 1)] as i64;
-            col_diff += (left - right).unsigned_abs();
+            let last = t.pixels[y * s + (s - 1)] as i64;
+            let first = t.pixels[y * s] as i64;
+            seam_col += (last - first).unsigned_abs();
         }
-        let mean_col = col_diff as f64 / s as f64;
+        let seam_col = seam_col as f64 / s as f64;
 
-        // Top row vs bottom row.
-        let mut row_diff = 0u64;
+        let mut seam_row = 0u64;
         for x in 0..s {
-            let top = t.pixels[x] as i64;
-            let bottom = t.pixels[(s - 1) * s + x] as i64;
-            row_diff += (top - bottom).unsigned_abs();
+            let last = t.pixels[(s - 1) * s + x] as i64;
+            let first = t.pixels[x] as i64;
+            seam_row += (last - first).unsigned_abs();
         }
-        let mean_row = row_diff as f64 / s as f64;
+        let seam_row = seam_row as f64 / s as f64;
 
-        // Opposite edges are one pixel step apart on a wrapping lattice, so the
-        // mean absolute difference must be small (well under a 12/255 tolerance).
         assert!(
-            mean_col < 12.0,
-            "left/right mean abs diff too high: {mean_col}"
+            seam_col <= interior_h * 1.5,
+            "vertical seam discontinuous: seam={seam_col:.2} vs interior={interior_h:.2}"
         );
         assert!(
-            mean_row < 12.0,
-            "top/bottom mean abs diff too high: {mean_row}"
+            seam_row <= interior_h * 1.5,
+            "horizontal seam discontinuous: seam={seam_row:.2} vs interior={interior_h:.2}"
         );
+    }
+
+    #[test]
+    fn baked_grain_has_no_hue() {
+        // Research-backed invariant: "no color shift" — the grain is pure
+        // luminance (Paperman's feColorMatrix saturate=0). Every baked pixel
+        // must be neutral (R == G == B); only alpha varies.
+        let t = generate_tile(&spec());
+        let dir = std::env::temp_dir();
+        for (pol, tag) in [(Polarity::DarkFleck, "dark"), (Polarity::LightFleck, "light")] {
+            let path = dir.join(format!("paper_grain_hue_{tag}.png"));
+            bake_png(&t, pol, 0.5, &path).unwrap();
+            let img = image::open(&path).unwrap().to_rgba8();
+            for p in img.pixels() {
+                assert!(
+                    p[0] == p[1] && p[1] == p[2],
+                    "{tag}: baked grain has hue (rgb {},{},{})",
+                    p[0],
+                    p[1],
+                    p[2]
+                );
+            }
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn intensity_bounds_attenuation() {
+        // Research-backed invariant: contrast attenuation must stay subtle — the
+        // overlay can never push opacity past the configured intensity. At the
+        // theme default 0.18, no fleck alpha may exceed ceil(0.18*255).
+        let t = generate_tile(&spec());
+        let dir = std::env::temp_dir();
+        let path = dir.join("paper_grain_intensity.png");
+        let intensity = 0.18f32;
+        bake_png(&t, Polarity::DarkFleck, intensity, &path).unwrap();
+        let img = image::open(&path).unwrap().to_rgba8();
+        let max_alpha = img.pixels().map(|p| p[3]).max().unwrap();
+        let ceiling = (intensity * 255.0).ceil() as u8; // 47
+        assert!(
+            max_alpha <= ceiling,
+            "alpha {max_alpha} exceeds intensity ceiling {ceiling}"
+        );
+        assert!(max_alpha > 0, "expected some grain");
     }
 
     #[test]
