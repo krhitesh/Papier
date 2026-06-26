@@ -78,6 +78,22 @@ open ~/Applications/Papier.app     # launches as a menu-bar agent (look for "P")
 Papier runs as an `LSUIElement` agent (no Dock icon). Quit from the **P** menu or
 `killall papier`.
 
+### First launch (Gatekeeper)
+
+Release builds are **ad-hoc signed but not notarized** (no Apple Developer
+account), so a *downloaded* copy is quarantined and macOS shows
+"Apple could not verify 'Papier'". To run it:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Papier.app   # after moving it into /Applications
+open /Applications/Papier.app
+```
+
+Or, via the GUI: try to open it once, then **System Settings → Privacy &
+Security → Open Anyway** (on macOS 15+/26 right-click → Open no longer bypasses
+this). Building from source locally avoids the prompt entirely (local builds
+aren't quarantined).
+
 ### Using it
 
 Click the **P** menu-bar item:
