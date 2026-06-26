@@ -48,11 +48,16 @@ pub struct Settings {
 fn default_enabled() -> bool {
     true
 }
+// Legibility-first defaults per Lin et al. (Displays 2008): the lowest effective
+// treatment is preferred (benefit is flat across a 6× haze range and only
+// appears under bright light), and the studied matte was neutral. So default to
+// the intensity floor and zero warmth; the menu sliders let the user raise both
+// for taste / bright rooms. See docs/research/legibility-tuning.md.
 fn default_intensity() -> f32 {
-    0.18
+    MIN_INTENSITY
 }
 fn default_warmth() -> f32 {
-    0.3
+    0.0
 }
 fn default_texture() -> String {
     DEFAULT_TEXTURE.to_string()
