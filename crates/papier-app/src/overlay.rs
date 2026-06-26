@@ -49,6 +49,9 @@ fn make_panel(
         panel.setIgnoresMouseEvents(true);
         panel.setFloatingPanel(true);
         panel.setBecomesKeyOnlyIfNeeded(true);
+        // Never auto-hide when our (accessory) app isn't frontmost — the overlay
+        // must persist across Space switches and app activation.
+        panel.setHidesOnDeactivate(false);
         // Don't free the panel object when it's ordered out — we reuse / retain it.
         panel.setReleasedWhenClosed(false);
 

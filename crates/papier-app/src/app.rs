@@ -20,7 +20,8 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSPanel, NSStatusItem,
-    NSWorkspace, NSWorkspaceDidActivateApplicationNotification,
+    NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_foundation::{
     NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSTimer,
@@ -197,6 +198,16 @@ define_class!(
             }
             self.reconcile_visibility();
         }
+
+        // --- workspace notification: active Space changed (three-finger swipe) ---
+        #[unsafe(method(activeSpaceChanged:))]
+        fn active_space_changed(&self, _note: &NSNotification) {
+            // canJoinAllSpaces already shows the panels on every Space, but a
+            // screensaver-level overlay can lag the switch animation and pop in
+            // late. Re-assert the panels front the instant the Space changes so
+            // the grain is present immediately on the incoming Space.
+            self.reconcile_visibility();
+        }
     }
 
     unsafe impl NSObjectProtocol for PapierDelegate {}
@@ -301,6 +312,13 @@ impl PapierDelegate {
                 self,
                 sel!(appActivated:),
                 Some(NSWorkspaceDidActivateApplicationNotification),
+                None,
+            );
+            // Re-assert the overlay the moment the active Space changes.
+            center.addObserver_selector_name_object(
+                self,
+                sel!(activeSpaceChanged:),
+                Some(NSWorkspaceActiveSpaceDidChangeNotification),
                 None,
             );
         }
