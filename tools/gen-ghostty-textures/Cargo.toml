@@ -1,0 +1,11 @@
+[package]
+name = "gen-ghostty-textures"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "gen-ghostty-textures"
+path = "src/main.rs"
+
+[dependencies]
+paper-grain = { path = "../../crates/paper-grain" }

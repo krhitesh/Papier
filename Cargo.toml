@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["crates/paper-grain", "crates/papier-app", "tools/gen-ghostty-textures"]
