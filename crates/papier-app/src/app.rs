@@ -254,7 +254,10 @@ impl PapierDelegate {
         let panels = overlay::build_for_all_screens(mtm, &texture, intensity);
         {
             let mut st = self.ivars().borrow_mut();
-            // Dropping the old panels releases their windows.
+            // Hide the old panels BEFORE dropping them. Dropping a still-ordered-in
+            // NSPanel can leave an orphaned window on screen (or flicker), so order
+            // them out first, then replace (drop releases our reference).
+            overlay::set_visible(&st.panels, false);
             st.panels = panels;
         }
         self.reconcile_visibility();
