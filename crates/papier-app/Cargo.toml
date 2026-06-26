@@ -9,3 +9,61 @@ path = "src/main.rs"
 
 [dependencies]
 paper-grain = { path = "../paper-grain" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString",
+    "NSArray",
+    "NSDictionary",
+    "NSObject",
+    "NSNotification",
+    "NSGeometry",
+    "NSValue",
+    "NSData",
+    "NSEnumerator",
+    "NSThread",
+    "NSDate",
+    "NSRunLoop",
+    "NSTimer",
+    "NSURL",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSResponder",
+    "NSWindow",
+    "NSPanel",
+    "NSView",
+    "NSScreen",
+    "NSColor",
+    "NSImage",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSMenu",
+    "NSMenuItem",
+    "NSSlider",
+    "NSControl",
+    "NSWorkspace",
+    "NSRunningApplication",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSImageRep",
+    "NSBitmapImageRep",
+] }
+objc2-quartz-core = { version = "0.3", features = [
+    "CALayer",
+    "objc2-core-foundation",
+] }
+objc2-core-foundation = { version = "0.3", features = [
+    "CFCGTypes",
+    "CFBase",
+    "CFArray",
+    "CFString",
+    "CFDictionary",
+    "CFNumber",
+] }
+objc2-service-management = { version = "0.3", features = [
+    "SMAppService",
+] }
