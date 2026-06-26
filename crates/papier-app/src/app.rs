@@ -28,7 +28,7 @@ use objc2_foundation::{
 };
 
 use crate::grain::CATALOG;
-use crate::settings::{clamp_intensity, Settings};
+use crate::settings::{clamp_intensity, clamp_warmth, Settings};
 use crate::{exclusion, loginitem, overlay, power};
 
 /// How often (seconds) we poll the power source for battery state.
@@ -97,6 +97,25 @@ define_class!(
             self.persist();
         }
 
+        #[unsafe(method(warmthChanged:))]
+        fn warmth_changed(&self, sender: Option<&AnyObject>) {
+            let value: f64 = match sender {
+                Some(s) => unsafe { msg_send![s, doubleValue] },
+                None => return,
+            };
+            let clamped = clamp_warmth(value as f32);
+            {
+                let mut st = self.ivars().borrow_mut();
+                st.settings.warmth = clamped;
+            }
+            // Re-bake the grain pattern in place (no panel teardown).
+            {
+                let st = self.ivars().borrow();
+                overlay::set_pattern(&st.panels, &st.settings.texture, clamped);
+            }
+            self.persist();
+        }
+
         #[unsafe(method(pickTexture:))]
         fn pick_texture(&self, sender: Option<&AnyObject>) {
             let tag: isize = match sender {
@@ -104,12 +123,17 @@ define_class!(
                 None => return,
             };
             if let Some(entry) = CATALOG.get(tag as usize) {
-                {
+                let (texture, warmth) = {
                     let mut st = self.ivars().borrow_mut();
                     st.settings.texture = entry.key.to_string();
+                    (st.settings.texture.clone(), st.settings.warmth)
+                };
+                // Re-bake the grain pattern in place (no panel teardown).
+                {
+                    let st = self.ivars().borrow();
+                    overlay::set_pattern(&st.panels, &texture, warmth);
                 }
                 self.persist();
-                self.rebuild_panels();
                 self.rebuild_menu();
             }
         }
@@ -258,11 +282,15 @@ impl PapierDelegate {
     /// texture switch).
     fn rebuild_panels(&self) {
         let mtm = self.mtm();
-        let (texture, intensity) = {
+        let (texture, intensity, warmth) = {
             let st = self.ivars().borrow();
-            (st.settings.texture.clone(), st.settings.intensity)
+            (
+                st.settings.texture.clone(),
+                st.settings.intensity,
+                st.settings.warmth,
+            )
         };
-        let panels = overlay::build_for_all_screens(mtm, &texture, intensity);
+        let panels = overlay::build_for_all_screens(mtm, &texture, intensity, warmth);
         {
             let mut st = self.ivars().borrow_mut();
             // Hide the old panels BEFORE dropping them. Dropping a still-ordered-in

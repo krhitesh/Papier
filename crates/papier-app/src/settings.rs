@@ -11,6 +11,11 @@ use std::path::PathBuf;
 pub const MIN_INTENSITY: f32 = 0.15;
 pub const MAX_INTENSITY: f32 = 0.30;
 
+/// Warmth tints the veil from neutral (0.0, no hue shift) to warm paper/cream
+/// (1.0). The whole range is selectable.
+pub const MIN_WARMTH: f32 = 0.0;
+pub const MAX_WARMTH: f32 = 1.0;
+
 /// Default texture catalog name (must exist in `paper-grain`'s catalog).
 pub const DEFAULT_TEXTURE: &str = "classic-matte";
 
@@ -23,6 +28,9 @@ pub struct Settings {
     /// Overlay alpha in [0.15, 0.30]. Always re-clamped on load via `normalize`.
     #[serde(default = "default_intensity")]
     pub intensity: f32,
+    /// Veil warmth in [0.0, 1.0]: 0 = neutral, 1 = warm cream. Re-clamped on load.
+    #[serde(default = "default_warmth")]
+    pub warmth: f32,
     /// Selected texture catalog name.
     #[serde(default = "default_texture")]
     pub texture: String,
@@ -43,6 +51,9 @@ fn default_enabled() -> bool {
 fn default_intensity() -> f32 {
     0.18
 }
+fn default_warmth() -> f32 {
+    0.3
+}
 fn default_texture() -> String {
     DEFAULT_TEXTURE.to_string()
 }
@@ -52,6 +63,7 @@ impl Default for Settings {
         Settings {
             enabled: default_enabled(),
             intensity: default_intensity(),
+            warmth: default_warmth(),
             texture: default_texture(),
             exclusion_list: Vec::new(),
             pause_on_battery: false,
@@ -65,6 +77,7 @@ impl Settings {
     /// was on disk (a hand-edited file could violate the intensity range).
     pub fn normalize(&mut self) {
         self.intensity = clamp_intensity(self.intensity);
+        self.warmth = clamp_warmth(self.warmth);
         if self.texture.trim().is_empty() {
             self.texture = DEFAULT_TEXTURE.to_string();
         }
@@ -100,6 +113,11 @@ pub fn clamp_intensity(value: f32) -> f32 {
     value.clamp(MIN_INTENSITY, MAX_INTENSITY)
 }
 
+/// Clamp warmth into the allowed [0.0, 1.0] range.
+pub fn clamp_warmth(value: f32) -> f32 {
+    value.clamp(MIN_WARMTH, MAX_WARMTH)
+}
+
 /// `~/Library/Application Support/Papier/settings.json`.
 pub fn settings_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
@@ -118,6 +136,7 @@ mod tests {
         let original = Settings {
             enabled: false,
             intensity: 0.22,
+            warmth: 0.5,
             texture: "whisper-weave".to_string(),
             exclusion_list: vec!["com.apple.FinalCutPro".into(), "com.figma.Desktop".into()],
             pause_on_battery: true,
@@ -195,5 +214,21 @@ mod tests {
         assert_eq!(clamp_intensity(1.0), MAX_INTENSITY);
         assert_eq!(clamp_intensity(MIN_INTENSITY), MIN_INTENSITY);
         assert_eq!(clamp_intensity(MAX_INTENSITY), MAX_INTENSITY);
+    }
+
+    #[test]
+    fn normalize_clamps_warmth() {
+        let mut hi = Settings {
+            warmth: 5.0,
+            ..Default::default()
+        };
+        hi.normalize();
+        assert_eq!(hi.warmth, MAX_WARMTH);
+        let mut lo = Settings {
+            warmth: -1.0,
+            ..Default::default()
+        };
+        lo.normalize();
+        assert_eq!(lo.warmth, MIN_WARMTH);
     }
 }

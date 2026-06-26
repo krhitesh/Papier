@@ -76,43 +76,50 @@ const VEIL_TONE: f32 = 0.78;
 /// Matte-tooth amplitude: how much the fine grain perturbs the veil luminance.
 const GRAIN_AMP: f32 = 0.10;
 
-/// Bake the overlay texture: a CONTRAST-ATTENUATING neutral matte veil carrying
-/// fine grain — NOT sparse dark flecks.
+/// Bake the overlay texture: a CONTRAST-ATTENUATING matte veil carrying fine
+/// grain — NOT sparse dark flecks.
 ///
 /// Per paperman.cc/research the paper effect is **contrast attenuation**
 /// (~1000:1 → ~15:1) plus **diffuse matte**, with **minimal hue shift**. Sparse
 /// black flecks only *darken* (pull toward black); they don't attenuate
 /// contrast, so they read as dark stipple, not paper. Instead we emit a
-/// full-coverage *neutral* light-gray veil (alpha-composited over the desktop it
-/// lifts blacks and lowers whites → lower contrast), whose luminance is
-/// perturbed by the grain for matte tooth. RGB stays neutral (R==G==B) ⇒ no
-/// color shift. The window's `alphaValue` scales the whole veil to the user's
-/// intensity (15–30%), so `intensity` is not applied here.
-fn bake_rgba(tile: &GrayTile, _intensity: f32) -> Vec<u8> {
+/// full-coverage light veil (alpha-composited over the desktop it lifts blacks
+/// and lowers whites → lower contrast), whose luminance is perturbed by the
+/// grain for matte tooth. The window's `alphaValue` scales the whole veil to the
+/// user's intensity (15–30%).
+///
+/// `warmth` (0..1) tints the veil toward warm paper/cream: at 0 it is fully
+/// neutral (R==G==B, no hue shift); higher values raise red and lower blue while
+/// keeping luminance roughly constant.
+fn bake_rgba(tile: &GrayTile, warmth: f32) -> Vec<u8> {
     let _ = Polarity::DarkFleck; // (legacy import; overlay no longer uses fleck polarity)
+    let warmth = warmth.clamp(0.0, 1.0);
+    // Per-channel gain from warmth: warm = more red, less blue, ~constant luma.
+    let rg = 1.0 + 0.12 * warmth;
+    let gg = 1.0 + 0.02 * warmth;
+    let bg = 1.0 - 0.16 * warmth;
     let size = tile.size as usize;
     let mut rgba = vec![0u8; size * size * 4];
     for (i, &g) in tile.pixels.iter().enumerate() {
         // Grain deviation around mid-gray, scaled to the matte-tooth amplitude.
         let d = (g as f32 / 255.0) - 0.5; // [-0.5, 0.5]
         let tone = (VEIL_TONE + d * 2.0 * GRAIN_AMP).clamp(0.0, 1.0);
-        let v = (tone * 255.0).round() as u8;
         let o = i * 4;
-        // Neutral gray, full coverage; the window alpha scales the veil strength.
-        rgba[o] = v;
-        rgba[o + 1] = v;
-        rgba[o + 2] = v;
-        rgba[o + 3] = 255;
+        rgba[o] = ((tone * rg).clamp(0.0, 1.0) * 255.0).round() as u8;
+        rgba[o + 1] = ((tone * gg).clamp(0.0, 1.0) * 255.0).round() as u8;
+        rgba[o + 2] = ((tone * bg).clamp(0.0, 1.0) * 255.0).round() as u8;
+        rgba[o + 3] = 255; // full coverage; the window alpha scales veil strength.
     }
     rgba
 }
 
-/// Build an `NSImage` tile from a catalog key + intensity, suitable for use as a
+/// Build an `NSImage` tile from a catalog key + warmth, suitable for use as a
 /// pattern color (`NSColor::colorWithPatternImage`). The image is the native
-/// tile size (e.g. 200x200) and is meant to be repeated.
-pub fn make_pattern_image(key: &str, intensity: f32) -> Retained<NSImage> {
+/// tile size (e.g. 200x200) and is meant to be repeated. Intensity is applied
+/// separately via the overlay window's `alphaValue`.
+pub fn make_pattern_image(key: &str, warmth: f32) -> Retained<NSImage> {
     let tile = tile_for(key);
-    let rgba = bake_rgba(&tile, intensity);
+    let rgba = bake_rgba(&tile, warmth);
     let size = tile.size;
 
     unsafe {

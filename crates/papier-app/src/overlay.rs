@@ -20,7 +20,7 @@
 use objc2::rc::Retained;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSPanel, NSScreen, NSScreenSaverWindowLevel, NSView,
+    NSBackingStoreType, NSColor, NSPanel, NSPopUpMenuWindowLevel, NSScreen, NSView,
     NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::NSRect;
@@ -34,6 +34,7 @@ fn make_panel(
     frame: NSRect,
     texture_key: &str,
     intensity: f32,
+    warmth: f32,
 ) -> Retained<NSPanel> {
     unsafe {
         let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
@@ -55,8 +56,12 @@ fn make_panel(
         // Don't free the panel object when it's ordered out — we reuse / retain it.
         panel.setReleasedWhenClosed(false);
 
-        // Float above normal windows.
-        panel.setLevel(NSScreenSaverWindowLevel);
+        // Float above normal windows, but BELOW the screensaver level: windows at
+        // NSScreenSaverWindowLevel get blanked during Mission Control / Space
+        // transitions (the grain vanishes mid-swipe and pops back). Pop-up-menu
+        // level still sits above all app + menu-bar windows yet composites
+        // smoothly across Spaces.
+        panel.setLevel(NSPopUpMenuWindowLevel);
 
         // Present everywhere, stay put, survive fullscreen, ignore cmd-` cycling.
         let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
@@ -72,7 +77,7 @@ fn make_panel(
 
         // Background is the tiled grain pattern. A layer-backed content view tiles
         // the same color so the grain fills the whole screen frame.
-        let pattern_image = grain::make_pattern_image(texture_key, 1.0);
+        let pattern_image = grain::make_pattern_image(texture_key, warmth);
         let pattern_color = NSColor::colorWithPatternImage(&pattern_image);
         panel.setBackgroundColor(Some(&pattern_color));
 
@@ -92,16 +97,27 @@ pub fn build_for_all_screens(
     mtm: MainThreadMarker,
     texture_key: &str,
     intensity: f32,
+    warmth: f32,
 ) -> Vec<Retained<NSPanel>> {
     let screens = NSScreen::screens(mtm);
     let mut panels = Vec::with_capacity(screens.len());
     for screen in screens.iter() {
         let frame = screen.frame();
-        let panel = make_panel(mtm, frame, texture_key, intensity);
+        let panel = make_panel(mtm, frame, texture_key, intensity, warmth);
         panel.orderFrontRegardless();
         panels.push(panel);
     }
     panels
+}
+
+/// Re-bake just the grain pattern (texture or warmth changed) on existing panels
+/// — no window teardown, so no flicker and no Space re-assert needed.
+pub fn set_pattern(panels: &[Retained<NSPanel>], texture_key: &str, warmth: f32) {
+    let pattern = grain::make_pattern_image(texture_key, warmth);
+    let color = NSColor::colorWithPatternImage(&pattern);
+    for panel in panels {
+        panel.setBackgroundColor(Some(&color));
+    }
 }
 
 /// Show / hide a set of panels without rebuilding them.

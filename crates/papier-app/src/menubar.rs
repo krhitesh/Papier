@@ -22,10 +22,12 @@ use objc2_app_kit::{
 use objc2_foundation::{NSRect, NSString};
 
 use crate::grain::CATALOG;
-use crate::settings::{Settings, MAX_INTENSITY, MIN_INTENSITY};
+use crate::settings::{Settings, MAX_INTENSITY, MAX_WARMTH, MIN_INTENSITY, MIN_WARMTH};
 
 /// Tag used on the intensity slider so the action handler can find it.
 pub const SLIDER_TAG: isize = 9001;
+/// Tag used on the warmth slider.
+pub const WARMTH_SLIDER_TAG: isize = 9002;
 
 /// Build the status item + menu. The returned `NSStatusItem` must be kept alive
 /// for the menu to remain in the menu bar.
@@ -122,6 +124,28 @@ pub fn build_menu(
         let slider_item = NSMenuItem::new(mtm);
         slider_item.setView(Some(&slider));
         menu.addItem(&slider_item);
+
+        // Warmth label + slider (neutral → warm cream).
+        let warmth_label = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc::<NSMenuItem>(),
+            &NSString::from_str("Warmth"),
+            None,
+            &NSString::from_str(""),
+        );
+        warmth_label.setEnabled(false);
+        menu.addItem(&warmth_label);
+
+        let warmth_slider = NSSlider::initWithFrame(mtm.alloc::<NSSlider>(), frame);
+        warmth_slider.setMinValue(MIN_WARMTH as f64);
+        warmth_slider.setMaxValue(MAX_WARMTH as f64);
+        warmth_slider.setDoubleValue(settings.warmth as f64);
+        warmth_slider.setTag(WARMTH_SLIDER_TAG);
+        warmth_slider.setTarget(Some(target));
+        warmth_slider.setAction(Some(sel!(warmthChanged:)));
+
+        let warmth_item = NSMenuItem::new(mtm);
+        warmth_item.setView(Some(&warmth_slider));
+        menu.addItem(&warmth_item);
     }
 
     menu.addItem(&NSMenuItem::separatorItem(mtm));
