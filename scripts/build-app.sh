@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build Papier in release mode and assemble a Papier.app bundle.
+# Build Papier as a UNIVERSAL (arm64 + x86_64) release binary and assemble a
+# Papier.app bundle.
 #
 # Output: <repo>/target/Papier.app  (a menu-bar agent; LSUIElement=true).
 # Self-signed / local run only — no notarization (per spec §2, §8).
@@ -16,24 +17,29 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_NAME="papier-app"          # cargo binary name
 EXEC_NAME="papier"             # CFBundleExecutable inside the bundle
 APP_DIR="$REPO_ROOT/target/Papier.app"
+VERSION="${PAPIER_VERSION:-0.0.1}"
 
-echo "==> Building release binary ($BIN_NAME)"
-cargo build --release -p papier-app --manifest-path "$REPO_ROOT/Cargo.toml"
-
-BIN_PATH="$REPO_ROOT/target/release/$BIN_NAME"
-if [[ ! -x "$BIN_PATH" ]]; then
-  echo "error: release binary not found at $BIN_PATH" >&2
-  exit 1
-fi
+echo "==> Building universal release binary ($BIN_NAME: arm64 + x86_64)"
+TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+for t in "${TARGETS[@]}"; do
+  rustup target add "$t" >/dev/null 2>&1 || true
+  cargo build --release -p papier-app --target "$t" --manifest-path "$REPO_ROOT/Cargo.toml"
+done
+ARM_BIN="$REPO_ROOT/target/aarch64-apple-darwin/release/$BIN_NAME"
+X86_BIN="$REPO_ROOT/target/x86_64-apple-darwin/release/$BIN_NAME"
+for b in "$ARM_BIN" "$X86_BIN"; do
+  [[ -x "$b" ]] || { echo "error: release binary not found at $b" >&2; exit 1; }
+done
 
 echo "==> Assembling $APP_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-# Executable.
-cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$EXEC_NAME"
+# Executable — lipo the two arches into one universal binary.
+lipo -create -output "$APP_DIR/Contents/MacOS/$EXEC_NAME" "$ARM_BIN" "$X86_BIN"
 chmod +x "$APP_DIR/Contents/MacOS/$EXEC_NAME"
+echo "==> Universal binary: $(lipo -archs "$APP_DIR/Contents/MacOS/$EXEC_NAME")"
 
 # Info.plist — LSUIElement agent, bundle id cc.papier.app.
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
@@ -54,9 +60,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -67,9 +73,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Icon. A real .icns is a TODO (see note). If a placeholder source PNG exists at
-# Resources/AppIcon.png we convert it; otherwise we leave the icon as a TODO and
-# the app still launches (the menu-bar item uses a text glyph "P").
+# Icon. A real .icns is generated from Resources/AppIcon.png if present (see
+# tools/gen-icon). Otherwise the bundle still launches with a text menu-bar glyph.
 ICON_SRC="$REPO_ROOT/crates/papier-app/resources/AppIcon.png"
 ICON_DST="$APP_DIR/Contents/Resources/AppIcon.icns"
 if [[ -f "$ICON_SRC" ]] && command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
@@ -92,4 +97,4 @@ if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP_DIR" || echo "   (codesign failed; continuing unsigned)"
 fi
 
-echo "==> Done: $APP_DIR"
+echo "==> Done: $APP_DIR (v$VERSION)"
