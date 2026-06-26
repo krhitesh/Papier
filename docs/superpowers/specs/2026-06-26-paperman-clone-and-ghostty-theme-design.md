@@ -13,7 +13,7 @@ Two deliverables built on **one shared texture engine**:
 
 The paper grain for both comes from a single Rust crate (`paper-grain`), so the terminal textures and the app overlay are literally the same engine.
 
-Reference facts about the real product are captured in `/Users/hiteshrawat/paperman-science-and-css.md` (extracted verbatim from the live site).
+Reference facts about the real product were extracted verbatim from the live site during design.
 
 ### Build order (Ghostty ships first)
 
