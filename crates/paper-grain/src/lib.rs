@@ -23,8 +23,17 @@ pub struct TextureSpec {
     /// paper grain (~3–5px features, matching Paperman's `feTurbulence` shown at
     /// ~900px) needs `base_frequency` in the tens (~32–48), NOT ~1.
     pub base_frequency: f64,
-    /// Number of fBm octaves (Paperman's `numOctaves`, typically 3).
+    /// Vertical:horizontal frequency ratio. `1.0` = isotropic grain; values > 1
+    /// pack more cycles on the vertical axis, producing a **directional weave**
+    /// (linen/fabric). Anisotropic micro-structure scatters specular highlights
+    /// across orientations — broader-angle glare diffusion.
+    pub aspect: f64,
+    /// Number of fBm octaves (Paperman's `numOctaves`, typically 3–5).
     pub octaves: u32,
+    /// Amplitude falloff per octave (fBm "persistence"). Lower (~0.4) = smoother,
+    /// base-octave-dominated, less haze; higher (~0.65) = rougher tooth with more
+    /// high-frequency energy = stronger diffuse scattering (more matte).
+    pub persistence: f64,
     /// PRNG seed for the lattice values (deterministic).
     pub seed: u32,
     /// Tile edge length in pixels; output is `size * size` grayscale samples.
@@ -58,11 +67,14 @@ pub fn generate_tile(spec: &TextureSpec) -> GrayTile {
     // Each octave's lattice period == its cycle count, keeping every octave
     // periodic over the tile, hence the whole sum is periodic (seamless).
     let base_cycles = spec.base_frequency.round().max(1.0) as u32;
+    let aspect = if spec.aspect > 0.0 { spec.aspect } else { 1.0 };
+    let persistence = if spec.persistence > 0.0 { spec.persistence } else { 0.5 };
     let octaves = spec.octaves.max(1);
 
     let mut amplitude = 1.0f64;
     let mut total_amplitude = 0.0f64;
-    let mut period = base_cycles;
+    let mut period_x = base_cycles;
+    let mut period_y = ((base_cycles as f64) * aspect).round().max(1.0) as u32;
 
     for octave in 0..octaves {
         let octave_seed = spec.seed.wrapping_add(octave.wrapping_mul(0x9E37_79B9));
@@ -70,13 +82,14 @@ pub fn generate_tile(spec: &TextureSpec) -> GrayTile {
             for x in 0..size {
                 let u = x as f64 / size as f64;
                 let v = y as f64 / size as f64;
-                let value = periodic_value_noise(u, v, period, octave_seed);
+                let value = periodic_value_noise(u, v, period_x, period_y, octave_seed);
                 accum[(y as usize) * (size as usize) + (x as usize)] += value * amplitude;
             }
         }
         total_amplitude += amplitude;
-        amplitude *= 0.5;
-        period = period.saturating_mul(2).max(1);
+        amplitude *= persistence;
+        period_x = period_x.saturating_mul(2).max(1);
+        period_y = period_y.saturating_mul(2).max(1);
     }
 
     let mut pixels = vec![0u8; n];
@@ -132,22 +145,55 @@ pub fn bake_png(
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
-/// Look up a named texture spec from the catalog (from the live Paperman site).
+/// All catalog texture keys, in display order. Shared by the app's texture
+/// picker and the tests so they can't drift apart.
+pub fn texture_names() -> &'static [&'static str] {
+    &[
+        "classic-matte",
+        "whisper-weave",
+        "sunbaked-parchment",
+        "saddle-linen",
+        "painters-press",
+        "vellum-mist",
+    ]
+}
+
+/// Look up a named texture spec from the catalog.
 ///
-/// Known names: `"classic-matte"`, `"whisper-weave"`, `"sunbaked-parchment"`.
-/// All use `octaves = 3` and `size = 200`.
+/// Each texture's parameters are chosen for a documented vision-science reason
+/// (see `docs/research/textures.md`). Common ground rules, from the anti-glare /
+/// legibility literature (Lin et al., *Displays* 2008) and the contrast-
+/// sensitivity function: keep the grain FINE (high spatial frequency, small
+/// features) so it diffuses specular glare without overlapping the mid spatial
+/// frequencies that carry text legibility, and keep amplitude restrained
+/// ("more matte is not better" — benefit was flat across a 6× haze range).
+/// `base_frequency` is in cycles across the 200px tile (feature ≈ size/base px).
 pub fn texture_spec(name: &str) -> Option<TextureSpec> {
-    // Cycles across the 200px tile -> dominant feature ≈ size/base px.
-    // 48 ≈ 4.2px (fine), 40 ≈ 5px, 32 ≈ 6.25px (coarsest of the three).
-    let (base_frequency, seed) = match name {
-        "classic-matte" => (48.0, 1),
-        "whisper-weave" => (40.0, 2),
-        "sunbaked-parchment" => (32.0, 3),
+    //                          base   aspect  oct  persist  seed
+    let (base_frequency, aspect, octaves, persistence, seed) = match name {
+        // Balanced fine isotropic micro-roughness. Default.
+        "classic-matte" => (48.0, 1.0, 3, 0.50, 1),
+        // Faint directional weave at the lowest amplitude — the legibility-first
+        // pick for text-heavy / bright-screen reading (lowest effective haze).
+        "whisper-weave" => (44.0, 2.0, 3, 0.42, 2),
+        // Heavier multi-octave diffuse fiber for long / low-light sessions.
+        "sunbaked-parchment" => (34.0, 1.2, 4, 0.62, 3),
+        // NEW: pronounced linen cross-weave — multi-orientation glare scatter,
+        // best under bright, multi-source light (where the study saw most benefit).
+        "saddle-linen" => (32.0, 3.5, 3, 0.50, 4),
+        // NEW: cold-press watercolor tooth — roughest (most octaves/persistence),
+        // strongest diffuse scattering for the brightest environments.
+        "painters-press" => (36.0, 1.0, 5, 0.68, 5),
+        // NEW: sheer near-translucent vellum — ultra-fine, lowest amplitude;
+        // the legibility extreme (highest spatial frequency, least text overlap).
+        "vellum-mist" => (64.0, 1.0, 3, 0.38, 6),
         _ => return None,
     };
     Some(TextureSpec {
         base_frequency,
-        octaves: 3,
+        aspect,
+        octaves,
+        persistence,
         seed,
         size: 200,
     })
@@ -155,25 +201,29 @@ pub fn texture_spec(name: &str) -> Option<TextureSpec> {
 
 // --- internal: periodic value noise -----------------------------------------
 
-/// Bilinearly interpolated value noise on a lattice that wraps with `period`
-/// cells across the unit square, with a smootherstep fade. Periodic in both
-/// axes -> the unit-square sample is seamlessly tileable.
-fn periodic_value_noise(u: f64, v: f64, period: u32, seed: u32) -> f64 {
-    let period = period.max(1);
-    let fx = u * period as f64;
-    let fy = v * period as f64;
+/// Bilinearly interpolated value noise on a lattice that wraps with `period_x`
+/// cells horizontally and `period_y` vertically, with a smootherstep fade.
+/// Periodic in both axes -> the unit-square sample is seamlessly tileable.
+/// Separate per-axis periods give anisotropic (woven) grain.
+fn periodic_value_noise(u: f64, v: f64, period_x: u32, period_y: u32, seed: u32) -> f64 {
+    let period_x = period_x.max(1);
+    let period_y = period_y.max(1);
+    let fx = u * period_x as f64;
+    let fy = v * period_y as f64;
 
     let x0 = fx.floor() as i64;
     let y0 = fy.floor() as i64;
     let tx = fx - x0 as f64;
     let ty = fy - y0 as f64;
 
-    let p = period as i64;
-    let wrap = |c: i64| -> u32 { c.rem_euclid(p) as u32 };
-    let x0w = wrap(x0);
-    let y0w = wrap(y0);
-    let x1w = wrap(x0 + 1);
-    let y1w = wrap(y0 + 1);
+    let px = period_x as i64;
+    let py = period_y as i64;
+    let wrap_x = |c: i64| -> u32 { c.rem_euclid(px) as u32 };
+    let wrap_y = |c: i64| -> u32 { c.rem_euclid(py) as u32 };
+    let x0w = wrap_x(x0);
+    let y0w = wrap_y(y0);
+    let x1w = wrap_x(x0 + 1);
+    let y1w = wrap_y(y0 + 1);
 
     let c00 = lattice_value(x0w, y0w, seed);
     let c10 = lattice_value(x1w, y0w, seed);
@@ -211,7 +261,9 @@ mod tests {
     fn spec() -> TextureSpec {
         TextureSpec {
             base_frequency: 48.0,
+            aspect: 1.0,
             octaves: 3,
+            persistence: 0.5,
             seed: 42,
             size: 200,
         }
@@ -261,7 +313,10 @@ mod tests {
     // Thresholds sit in the gap so a regression back to ~1.5 fails loudly.
     #[test]
     fn catalog_grain_is_fine_not_coarse() {
-        for name in ["classic-matte", "whisper-weave", "sunbaked-parchment"] {
+        // EVERY catalog texture — improved or new, isotropic or woven — must stay
+        // fine (no large blobs), so adding "coarse" character never regresses
+        // legibility back toward the ~25px-blob bug.
+        for &name in texture_names() {
             let t = generate_tile(&texture_spec(name).unwrap());
             let adj = adjacent_h_mean_abs_diff(&t);
             let blob = block_avg_std(&t, 8);
@@ -395,11 +450,17 @@ mod tests {
 
     #[test]
     fn texture_catalog_lookup() {
-        assert!(texture_spec("classic-matte").is_some());
-        assert!(texture_spec("whisper-weave").is_some());
-        assert!(texture_spec("sunbaked-parchment").is_some());
+        // Every advertised name resolves; unknown names don't.
+        for &name in texture_names() {
+            assert!(texture_spec(name).is_some(), "missing spec for {name}");
+        }
+        assert_eq!(texture_names().len(), 6);
         assert!(texture_spec("nope").is_none());
         assert_eq!(texture_spec("classic-matte").unwrap().octaves, 3);
         assert_eq!(texture_spec("sunbaked-parchment").unwrap().size, 200);
+        // New textures carry their distinguishing character.
+        assert!(texture_spec("saddle-linen").unwrap().aspect > 2.0); // woven
+        assert!(texture_spec("painters-press").unwrap().persistence > 0.6); // rough
+        assert!(texture_spec("vellum-mist").unwrap().base_frequency >= 60.0); // ultra-fine
     }
 }

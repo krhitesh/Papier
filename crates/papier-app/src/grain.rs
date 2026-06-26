@@ -28,7 +28,8 @@ pub struct TextureEntry {
     pub display: &'static str,
 }
 
-/// The catalog mirrors `paper-grain`'s known names (from the live Paperman site).
+/// The catalog mirrors `paper-grain`'s known names. Each texture's parameters
+/// are chosen for a documented vision-science reason — see docs/research/textures.md.
 pub const CATALOG: &[TextureEntry] = &[
     TextureEntry {
         key: "classic-matte",
@@ -41,6 +42,18 @@ pub const CATALOG: &[TextureEntry] = &[
     TextureEntry {
         key: "sunbaked-parchment",
         display: "Sunbaked Parchment",
+    },
+    TextureEntry {
+        key: "saddle-linen",
+        display: "Saddle Linen",
+    },
+    TextureEntry {
+        key: "painters-press",
+        display: "Painter's Press",
+    },
+    TextureEntry {
+        key: "vellum-mist",
+        display: "Vellum Mist",
     },
 ];
 
