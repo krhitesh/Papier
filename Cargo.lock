@@ -321,6 +321,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gen-icon"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "paper-grain",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
