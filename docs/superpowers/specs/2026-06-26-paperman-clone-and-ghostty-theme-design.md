@@ -31,6 +31,7 @@ Per decision, the lower-risk, faster-value Ghostty themes ship before the app:
 | App architecture | **Pure Rust + Cocoa bindings** via `objc2` family. No Swift. |
 | Grain rendering | Pre-generated **tileable fractal-noise** texture, **static** (no animation loop, ~0% CPU), composited per-frame-free. Faithful to Paperman's `feTurbulence` recipe (the low-contrast "A" look, not soft-light/vignette). |
 | App packaging | **Proper `.app` bundle** (Info.plist, icon, menu-bar agent, launch-at-login). Self-signed / local run; **no notarization**. |
+| App name | **Papier** — the product we ship (clones the original "Paperman"). Crate `papier-app`, bundle `Papier.app`, themes branded "Papier". |
 | Ghostty themes | All three palettes (Light "Paper", Dark-green "Forest", Dark-warm "Lamplight"), **plain + textured = 6 themes**. |
 | Grain look | Faithful Paperman recipe ("A"): fractal noise, desaturated, `multiply`(light)/`screen`(dark) feel, baked per-theme. |
 | Success criterion | **Visual + behavioral parity** with the real app (the verifiable bar), **plus** a best-effort investigation to discover/mirror the native blend technique where findable. |
@@ -43,16 +44,16 @@ Per decision, the lower-risk, faster-value Ghostty themes ship before the app:
   Cargo.toml                    # workspace
   crates/
     paper-grain/                # LIB: noise → tileable grayscale texture (image buffer + PNG)
-    paperman-app/               # BIN: the macOS .app
+    papier-app/                 # BIN: the macOS .app (Papier)
   tools/
     gen-ghostty-textures/       # BIN: bakes textured-theme PNGs (uses paper-grain)
   ghostty-themes/
-    paperman-paper              # 6 theme files
-    paperman-paper-textured
-    paperman-forest
-    paperman-forest-textured
-    paperman-lamplight
-    paperman-lamplight-textured
+    papier-paper                # 6 theme files
+    papier-paper-textured
+    papier-forest
+    papier-forest-textured
+    papier-lamplight
+    papier-lamplight-textured
     textures/                   # baked *.png (build output)
   scripts/
     build-app.sh                # assembles Paperman.app
@@ -106,7 +107,7 @@ PNGs baked by `gen-ghostty-textures` using the faithful recipe (dark-fleck for P
 
 **Verification note (no assumption):** Ghostty `background-image` (added in 1.2.0, Sept 2025) is confirmed supported on the installed version. During implementation, **verify whether `background-image` is honored inside a theme file or must live in a `config-file` include**; structure the textured deliverable accordingly (theme file for colors + an includable snippet for the image if required). No assumption baked in.
 
-**Install:** `scripts/install-ghostty.sh` copies the 6 files to `~/.config/ghostty/themes/` and writes absolute texture paths. README documents `theme = Paperman Paper Textured` usage.
+**Install:** `scripts/install-ghostty.sh` copies the 6 files to `~/.config/ghostty/themes/` and writes absolute texture paths. README documents `theme = Papier Paper Textured` usage. Theme display names: "Papier Paper", "Papier Forest", "Papier Lamplight" (+ " Textured").
 
 **Phase 1 done when:** all 6 load in Ghostty; plain shows correct palette; textured shows the paper grain at the chosen intensity; install script works on a clean `~/.config/ghostty`.
 
@@ -120,11 +121,11 @@ PNGs baked by `gen-ghostty-textures` using the faithful recipe (dark-fleck for P
 - `menubar/` — `NSStatusItem` menu: on/off toggle, intensity `NSSlider` (clamped **15–30%**), texture picker, snooze submenu, quit.
 - `exclusion/` — observe `NSWorkspace.didActivateApplicationNotification`; hide overlay when frontmost app's bundle-id ∈ allowlist; restore otherwise.
 - `power/` — poll IOKit power source; pause overlay on battery when enabled.
-- `settings/` — serde model persisted to `~/Library/Application Support/Paperman/settings.json` (intensity, texture, exclusion list, pause-on-battery, enabled, login-item).
+- `settings/` — serde model persisted to `~/Library/Application Support/Papier/settings.json` (intensity, texture, exclusion list, pause-on-battery, enabled, login-item).
 - `loginitem/` — `SMAppService` register/unregister.
 - `app.rs` / `main.rs` — `NSApplication` (as `LSUIElement` agent), delegate, state coordinator wiring modules.
 
-**Packaging:** `scripts/build-app.sh` builds release binary and assembles `Paperman.app` (`Contents/MacOS`, `Info.plist` with `LSUIElement=true`, `Resources/AppIcon.icns`). Self-signed/local; no notarization.
+**Packaging:** `scripts/build-app.sh` builds release binary and assembles `Papier.app` (`Contents/MacOS`, `Info.plist` with `CFBundleName=Papier`, `LSUIElement=true`, `Resources/AppIcon.icns`). Self-signed/local; no notarization.
 
 ### Known technical risk + investigation (Phase 2 spike)
 
